@@ -24,7 +24,7 @@ import (
 
 type cli struct {
 	Name   string         `default:"world"`
-	Config kongcue.Config `default:"./config.yml"`
+	Config kongcue.Config `default:"./config.{yml,yaml,cue,json}"`
 }
 
 func (c *cli) Run() error {
@@ -53,10 +53,28 @@ name: "Brian"
 ## Features
 
 - **Multiple file formats**: YAML, JSON, and CUE files
-- **Glob patterns**: Load configs with patterns like `~/.myapp/*.yaml`
+- **Glob patterns**: Load configs with patterns like `~/.myapp/*.{yaml,yml}`
 - **Config unification**: Multiple config files are merged; conflicts produce errors
 - **Automatic name mapping**: CLI flags (`--ca-url`) map to config keys (`ca_url`)
 - **Command hierarchy**: Flags resolve based on subcommand context
+- **Schema validation**: Config keys are validated against CLI flags
+
+## Schema Validation
+
+By default, config files are validated against your CLI struct. Unknown keys that don't correspond to any CLI flag will cause an error:
+
+```
+error: unknown configuration key: typo_field: field not allowed
+       Hint: Check that all config keys correspond to valid CLI flags
+```
+
+This catches typos and stale config keys early.
+
+To allow extra fields in config files (useful if configs are shared with other tools), use `AllowUnknownFields()`:
+
+```go
+ctx := kong.Parse(&cli, kongcue.AllowUnknownFields())
+```
 
 ## Configuration Formats
 
