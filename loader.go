@@ -12,6 +12,7 @@ import (
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/encoding/yaml"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // LoadAndUnifyPaths loads multiple config files and unifies them into a single CUE value.
@@ -32,7 +33,7 @@ func LoadAndUnifyPaths(patterns []string) (cue.Value, error) {
 		}
 
 		// Handle glob patterns
-		matches, err := filepath.Glob(expanded)
+		matches, err := doublestar.FilepathGlob(expanded)
 		if err != nil {
 			continue // Invalid pattern, skip
 		}
