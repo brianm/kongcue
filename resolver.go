@@ -40,6 +40,7 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	if err != nil {
 		return fmt.Errorf("unable to load config: %w", err)
 	}
+	ctx.Bind(val)
 	ctx.AddResolver(NewResolver(val))
 	return nil
 }

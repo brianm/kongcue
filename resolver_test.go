@@ -47,7 +47,39 @@ func TestBasics(t *testing.T) {
 		t.Logf("expected name to be Brian, was %s", cli.Name)
 		t.FailNow()
 	}
+}
 
+func TestBasics2(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	configFile2 := filepath.Join(dir, "config.cue")
+	os.WriteFile(configFile, []byte("name: Brian"), 0666)
+	os.WriteFile(configFile2, []byte("hobby: \"sailing\""), 0666)
+
+	var cli struct {
+		Name   string         `name:"name" help:"a name" default:"Tom"`
+		Hobby  string         `name:"hobby" help:"a hobby" default:"biking"`
+		Config kongcue.Config `name:"config"`
+	}
+
+	parser, err := kong.New(&cli)
+	if err != nil {
+		t.Logf("unexpected error: %s", err)
+		t.FailNow()
+	}
+	_, err = parser.Parse([]string{"--config", configFile, "--config", configFile2})
+	if err != nil {
+		t.Logf("unexpected error parsing: %s", err)
+		t.FailNow()
+	}
+	if cli.Name != "Brian" {
+		t.Logf("expected name to be Brian, was %s", cli.Name)
+		t.FailNow()
+	}
+	if cli.Hobby != "sailing" {
+		t.Logf("expected name to be sailing, was %s", cli.Hobby)
+		t.FailNow()
+	}
 }
 
 func TestNewResolver_GlobalFlag(t *testing.T) {
