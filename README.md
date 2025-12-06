@@ -24,7 +24,7 @@ import (
 
 type cli struct {
 	Name   string         `default:"world"`
-	Config kongcue.Config `default:"./config.{yml,yaml,cue,json}"`
+	Config kongcue.Config `default:"./config.{yml,yaml,cue,json}" sep:";"`
 }
 
 func (c *cli) Run() error {
@@ -58,6 +58,24 @@ name: "Brian"
 - **Automatic name mapping**: CLI flags (`--ca-url`) map to config keys (`ca_url`)
 - **Command hierarchy**: Flags resolve based on subcommand context
 - **Schema validation**: Config keys are validated against CLI flags
+
+## Glob Patterns
+
+You can use bash style glob patterns (provided by [doublestar](https://github.com/bmatcuk/doublestar?tab=readme-ov-file#patterns)).
+
+Note that if you use `{yml,yaml,cue,json}` style brace expansion and a default value, you will need to tell kong to use a seperator other than `,` or it will split inside the braces, so use something like:
+
+```go
+Config kongcue.Config `default:"./config.{yml,yaml,cue,json}" sep:";"`
+````
+
+This tells kong to use a `;` as the seperator between values, so you could do:
+
+```go
+Config kongcue.Config `default:"/etc/foo.cue;~/.config/foo/config.{yaml,cue,json}" sep:";"`
+````
+
+To tell it to look in `/etc/foo.cue` and `~/.config/foo/config.{yaml,cue,json}`.
 
 ## Schema Validation
 

@@ -9,7 +9,7 @@ import (
 
 type cli struct {
 	Name   string         `default:"world"`
-	Config kongcue.Config `default:"./example.{yml,json,cue}"`
+	Config kongcue.Config `default:"./example.{yml,json,cue}" sep:";"`
 }
 
 func (c *cli) Run() error {
