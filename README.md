@@ -1,0 +1,145 @@
+# kongcue
+
+A Go library that bridges [Kong](https://github.com/alecthomas/kong) CLI parsing with [CUE](https://cuelang.org/)-based configuration files.
+
+## Installation
+
+```bash
+go get github.com/brianm/kongcue
+```
+
+## Quick Start
+
+Embed `kongcue.Config` in your CLI struct to automatically load config files and resolve flag values:
+
+```go
+package main
+
+import (
+	"fmt"
+
+	"github.com/alecthomas/kong"
+	"github.com/brianm/kongcue"
+)
+
+type cli struct {
+	Name   string         `default:"world"`
+	Config kongcue.Config `default:"./config.yml"`
+}
+
+func (c *cli) Run() error {
+	fmt.Printf("Hello, %s\n", c.Name)
+	return nil
+}
+
+func main() {
+	var c cli
+	ktx := kong.Parse(&c)
+	err := ktx.Run()
+	ktx.FatalIfErrorf(err)
+}
+```
+
+With `config.yml`:
+```yaml
+name: "Brian"
+```
+
+```bash
+./myapp              # Hello, Brian (from config)
+./myapp --name Alice # Hello, Alice (CLI overrides config)
+```
+
+## Features
+
+- **Multiple file formats**: YAML, JSON, and CUE files
+- **Glob patterns**: Load configs with patterns like `~/.myapp/*.yaml`
+- **Config unification**: Multiple config files are merged; conflicts produce errors
+- **Automatic name mapping**: CLI flags (`--ca-url`) map to config keys (`ca_url`)
+- **Command hierarchy**: Flags resolve based on subcommand context
+
+## Configuration Formats
+
+All formats are parsed using CUE, which means you get CUE's type checking and unification:
+
+**YAML** (`config.yaml`):
+```yaml
+verbose: 2
+agent:
+  ca_url: "https://ca.example.com"
+```
+
+**JSON** (`config.json`):
+```json
+{
+  "verbose": 2,
+  "agent": {
+    "ca_url": "https://ca.example.com"
+  }
+}
+```
+
+**CUE** (`config.cue`):
+```cue
+verbose: 2
+agent: {
+  ca_url: "https://ca.example.com"
+}
+```
+
+## Naming Convention
+
+CLI flags use kebab-case, config files use snake_case:
+
+| CLI Flag | Config Key |
+|----------|------------|
+| `--ca-url` | `ca_url` |
+| `--log-file` | `log_file` |
+
+This avoids quoted field names in CUE (where `-` is the subtraction operator).
+
+## Command Path Resolution
+
+Flags are resolved using the command hierarchy. For a CLI like:
+
+```go
+type cli struct {
+    Verbose int `name:"verbose"`
+    Agent struct {
+        CaURL string `name:"ca-url"`
+    } `cmd:""`
+}
+```
+
+- `--verbose` resolves to `verbose` in config
+- `agent --ca-url` resolves to `agent.ca_url` in config
+
+## Multiple Config Files
+
+Specify multiple config files with repeated flags:
+
+```bash
+./myapp --config base.yaml --config overrides.yaml
+```
+
+Files are unified in order. Conflicting values (same key, different values) produce an error.
+
+## Low-Level API
+
+For more control, use the loader and resolver directly:
+
+```go
+config, err := kongcue.LoadAndUnifyPaths([]string{
+    "~/.myapp/config.yaml",
+    "./local.yaml",
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+ctx := kong.Parse(&cli, kong.Resolvers(kongcue.NewResolver(config)))
+```
+
+## License
+
+Apache-2.0
