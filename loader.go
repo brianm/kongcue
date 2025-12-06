@@ -113,7 +113,7 @@ func LoadAndUnifyPaths(patterns []string) (cue.Value, error) {
 
 	for _, pattern := range patterns {
 		// Expand ~ to home directory
-		expanded, err := ExpandPath(pattern)
+		expanded, err := expandPath(pattern)
 		if err != nil {
 			continue // Skip patterns with expansion errors
 		}
@@ -209,9 +209,9 @@ func loadSingleFile(ctx *cue.Context, path string) (cue.Value, error) {
 	}
 }
 
-// ExpandPath expands ~ to the user's home directory.
+// expandPath expands ~ to the user's home directory.
 // Returns the path unchanged if it doesn't start with ~.
-func ExpandPath(path string) (string, error) {
+func expandPath(path string) (string, error) {
 	if len(path) == 0 || path[0] != '~' {
 		return path, nil
 	}

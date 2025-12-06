@@ -391,36 +391,3 @@ from_cue: true
 		t.Error("expected from_json to be true")
 	}
 }
-
-func TestExpandPath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home dir: %v", err)
-	}
-
-	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
-	}{
-		{"empty", "", "", false},
-		{"no tilde", "/some/path", "/some/path", false},
-		{"just tilde", "~", home, false},
-		{"tilde with path", "~/foo/bar", filepath.Join(home, "foo/bar"), false},
-		{"tilde in middle", "/some/~path", "/some/~path", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := kongcue.ExpandPath(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ExpandPath() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("ExpandPath() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
