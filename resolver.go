@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/errors"
 	"github.com/alecthomas/kong"
 )
 
@@ -55,10 +56,10 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 }
 
 func (r *cueResolver) Validate(app *kong.Application) error {
-	if r.value.Err() != nil {
-		return r.value.Err()
+	if err := r.value.Validate(); err != nil {
+		return errors.New(errors.Details(err, nil))
 	}
-	return r.value.Validate()
+	return nil
 }
 
 func (r *cueResolver) Resolve(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {

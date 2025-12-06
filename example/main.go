@@ -23,6 +23,5 @@ func main() {
 
 	var c cli
 	ktx := kong.Parse(&c)
-	err := ktx.Run()
-	ktx.FatalIfErrorf(err)
+	ktx.FatalIfErrorf(ktx.Run())
 }
