@@ -15,6 +15,7 @@ import (
 // schemaOptions is the internal options struct used during schema generation.
 type schemaOptions struct {
 	allowUnknownFields bool
+	permissiveTypes    bool // Use _ for all types (for unknown field checking only)
 }
 
 // pendingOpts accumulates schema options set during kong.New().
@@ -65,7 +66,7 @@ func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *schemaOptions
 	}
 
 	// Compile to CUE value
-	schemaVal := ctx.CompileBytes(src)
+	schemaVal := ctx.CompileBytes(src, cue.Filename("generated-schema"))
 	if err := schemaVal.Err(); err != nil {
 		return cue.Value{}, fmt.Errorf("failed to compile schema: %w", err)
 	}
@@ -105,7 +106,12 @@ func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
 		}
 
 		fieldName := kebabToSnake(flag.Name)
-		fieldType := valueToType(flag.Value)
+		var fieldType ast.Expr
+		if opts.permissiveTypes {
+			fieldType = ast.NewIdent("_")
+		} else {
+			fieldType = valueToType(flag.Value)
+		}
 
 		// Create optional field: fieldName?: type
 		field := &ast.Field{
@@ -158,30 +164,30 @@ func valueToType(v *kong.Value) ast.Expr {
 
 	// Handle counters (like -v -v -v for verbosity)
 	if v.IsCounter() {
-		return orExpr(ast.NewIdent("int"), ast.NewIdent("string"))
+		return ast.NewIdent("int")
 	}
 
 	// Handle booleans
 	if v.IsBool() {
-		return orExpr(ast.NewIdent("bool"), ast.NewIdent("string"))
+		return ast.NewIdent("bool")
 	}
 
 	// Use reflection for other types
 	return kindToType(v.Target.Kind())
 }
 
-// kindToType converts a reflect.Kind to a CUE type expression with string coercion.
+// kindToType converts a reflect.Kind to a CUE type expression.
 func kindToType(k reflect.Kind) ast.Expr {
 	switch k {
 	case reflect.String:
 		return ast.NewIdent("string")
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return orExpr(ast.NewIdent("int"), ast.NewIdent("string"))
+		return ast.NewIdent("int")
 	case reflect.Float32, reflect.Float64:
-		return orExpr(ast.NewIdent("number"), ast.NewIdent("string"))
+		return ast.NewIdent("number")
 	case reflect.Bool:
-		return orExpr(ast.NewIdent("bool"), ast.NewIdent("string"))
+		return ast.NewIdent("bool")
 	default:
 		return ast.NewIdent("_")
 	}
@@ -194,11 +200,6 @@ func sliceElemType(v reflect.Value) ast.Expr {
 	}
 	elemKind := v.Type().Elem().Kind()
 	return kindToType(elemKind)
-}
-
-// orExpr creates a CUE binary OR expression: a | b
-func orExpr(a, b ast.Expr) ast.Expr {
-	return &ast.BinaryExpr{X: a, Op: token.OR, Y: b}
 }
 
 // wrapInClose wraps a struct in close() to reject unknown fields.

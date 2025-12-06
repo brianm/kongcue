@@ -8,8 +8,9 @@ import (
 )
 
 type cli struct {
-	Name   string         `default:"world"`
-	Config kongcue.Config `default:"./example.{yml,json,cue}" sep:";"`
+	Name     string         `default:"world"`
+	Required bool           `required:""`
+	Config   kongcue.Config `default:"./example.{yml,json,cue}" sep:";"`
 }
 
 func (c *cli) Run() error {
@@ -18,9 +19,6 @@ func (c *cli) Run() error {
 }
 
 func main() {
-
-	//logger := slog.Default()
-
 	var c cli
 	ktx := kong.Parse(&c)
 	ktx.FatalIfErrorf(ktx.Run())

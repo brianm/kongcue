@@ -42,24 +42,59 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 		return fmt.Errorf("unable to load config: %w", err)
 	}
 
-	// Generate schema from Kong model and validate config
-	schema, err := GenerateSchema(val.Context(), k.Model, getSchemaOptions())
+	// Generate schema and validate config early to report config errors clearly
+	opts := getSchemaOptions()
+	schema, err := GenerateSchema(val.Context(), k.Model, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate config schema: %w", err)
 	}
 
+	var allErrs errors.Error
+
+	// First pass: check for unknown fields using permissive types
+	if !opts.allowUnknownFields {
+		permissiveOpts := &schemaOptions{permissiveTypes: true}
+		permissiveSchema, err := GenerateSchema(val.Context(), k.Model, permissiveOpts)
+		if err != nil {
+			return fmt.Errorf("failed to generate config schema: %w", err)
+		}
+		if err := val.Unify(permissiveSchema).Validate(); err != nil {
+			allErrs = errors.Append(allErrs, errors.Promote(err, ""))
+		}
+	}
+
+	// Second pass: check types with strict schema
 	merged := val.Unify(schema)
+	if err := merged.Validate(); err != nil {
+		allErrs = errors.Append(allErrs, errors.Promote(err, ""))
+	}
+
+	if allErrs != nil {
+		return errors.New(filterErrorDetails(allErrs))
+	}
 
 	ctx.Bind(merged)
-	ctx.AddResolver(NewResolver(merged))
+	ctx.AddResolver(&cueResolver{value: merged})
 	return nil
 }
 
 func (r *cueResolver) Validate(app *kong.Application) error {
-	if err := r.value.Validate(); err != nil {
-		return errors.New(errors.Details(err, nil))
-	}
+	// Schema validation already done in BeforeResolve
 	return nil
+}
+
+// filterErrorDetails formats CUE errors, removing references to generated files.
+func filterErrorDetails(err error) string {
+	details := errors.Details(err, nil)
+	// Filter out lines referencing the generated schema
+	var filtered []string
+	for line := range strings.SplitSeq(details, "\n") {
+		if strings.Contains(line, "generated-schema") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }
 
 func (r *cueResolver) Resolve(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {

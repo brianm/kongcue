@@ -164,15 +164,12 @@ agent:
 	}
 }
 
-func TestValidateConfig_StringCoercion(t *testing.T) {
+func TestValidateConfig_TypeMismatch(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "config.yaml")
-	// Use string representations of int and bool
+	// Use string where int is expected
 	if err := os.WriteFile(configFile, []byte(`
-verbose: "2"
-debug: "true"
-agent:
-  port: "9090"
+verbose: "not-a-number"
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -193,9 +190,10 @@ agent:
 		t.Fatalf("failed to generate schema: %v", err)
 	}
 
-	// Should validate successfully with string coercion
-	if err := kongcue.ValidateConfig(schema, config); err != nil {
-		t.Errorf("string coercion should be allowed: %v", err)
+	// Should fail validation due to type mismatch
+	err = kongcue.ValidateConfig(schema, config)
+	if err == nil {
+		t.Fatal("expected error for type mismatch")
 	}
 }
 
