@@ -6,109 +6,21 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue"
-	"github.com/brianm/kong-cue"
+	kongcue "github.com/brianm/kongcue"
 )
 
 // testConfig is a sample config struct for testing
 type testConfig struct {
-	Insecure bool              `json:"insecure"`
-	Verbose  int               `json:"verbose"`
-	LogFile  string            `json:"log_file"`
-	Agent    *testAgentConfig  `json:"agent,omitempty"`
+	Insecure bool             `json:"insecure"`
+	Verbose  int              `json:"verbose"`
+	LogFile  string           `json:"log_file"`
+	Agent    *testAgentConfig `json:"agent,omitempty"`
 }
 
 type testAgentConfig struct {
 	Match []string `json:"match"`
 	CaURL string   `json:"ca_url"`
 	Auth  string   `json:"auth"`
-}
-
-func TestLoadFromFile_YAML(t *testing.T) {
-	yaml := `
-insecure: true
-verbose: 2
-log_file: "/var/log/test.log"
-
-agent:
-  match:
-    - "*.example.com"
-    - "*.internal"
-  ca_url: "https://ca.example.com"
-  auth: "my-auth-command"
-`
-
-	tempFile := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(tempFile, []byte(yaml), 0644); err != nil {
-		t.Fatalf("failed to write temp file: %v", err)
-	}
-
-	cfg, err := kongcue.LoadFromFile[testConfig](tempFile)
-	if err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-
-	if !cfg.Insecure {
-		t.Error("expected insecure to be true")
-	}
-
-	if cfg.Verbose != 2 {
-		t.Errorf("expected verbose 2, got %d", cfg.Verbose)
-	}
-
-	if cfg.LogFile != "/var/log/test.log" {
-		t.Errorf("unexpected log_file: %s", cfg.LogFile)
-	}
-
-	if cfg.Agent == nil {
-		t.Fatal("agent is nil")
-	}
-
-	if len(cfg.Agent.Match) != 2 {
-		t.Errorf("expected 2 match patterns, got %d", len(cfg.Agent.Match))
-	}
-
-	if cfg.Agent.CaURL != "https://ca.example.com" {
-		t.Errorf("unexpected ca_url: %s", cfg.Agent.CaURL)
-	}
-}
-
-func TestLoadFromFile_JSON(t *testing.T) {
-	json := `{
-  "insecure": true,
-  "agent": {
-    "match": ["*.example.com"],
-    "ca_url": "https://ca.example.com"
-  }
-}`
-
-	tempFile := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(tempFile, []byte(json), 0644); err != nil {
-		t.Fatalf("failed to write temp file: %v", err)
-	}
-
-	cfg, err := kongcue.LoadFromFile[testConfig](tempFile)
-	if err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-
-	if !cfg.Insecure {
-		t.Error("expected insecure to be true")
-	}
-
-	if cfg.Agent == nil {
-		t.Fatal("agent is nil")
-	}
-
-	if len(cfg.Agent.Match) != 1 {
-		t.Errorf("expected 1 match pattern, got %d", len(cfg.Agent.Match))
-	}
-}
-
-func TestLoadFromFile_NonexistentFile(t *testing.T) {
-	_, err := kongcue.LoadFromFile[testConfig]("/nonexistent/path/config.yaml")
-	if err == nil {
-		t.Fatal("expected error for nonexistent file")
-	}
 }
 
 func TestLoadValue_DirectPathLookup(t *testing.T) {

@@ -101,31 +101,6 @@ func LoadValue(path string) (cue.Value, error) {
 	return val, nil
 }
 
-// LoadFromFile loads configuration from a file or directory into the specified type.
-//
-// For .cue files: Uses CUE's load.Instances to support CUE packages with imports and modules.
-// For .yaml/.yml/.json files: Uses direct parsing for standalone data files.
-// For directories: Loads all .cue files as a package (supports imports between files).
-//
-// Examples:
-//
-//	cfg, err := LoadFromFile[MyConfig]("config.yaml")
-//	cfg, err := LoadFromFile[MyConfig]("./config")  // loads .cue directory
-func LoadFromFile[T any](path string) (*T, error) {
-	val, err := LoadValue(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decode into Go struct
-	var config T
-	if err := val.Decode(&config); err != nil {
-		return nil, fmt.Errorf("failed to decode config: %w", err)
-	}
-
-	return &config, nil
-}
-
 // LoadAndUnifyPaths loads multiple config files and unifies them into a single CUE value.
 // Supports glob patterns and mixed file types (.cue, .yaml, .yml, .json).
 // Missing files are silently skipped. Returns error if files have conflicting values.

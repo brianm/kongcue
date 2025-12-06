@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
-	kongcue "github.com/brianm/kong-cue"
+	kongcue "github.com/brianm/kongcue"
 )
 
 // Test CLI structure for resolver tests

@@ -1,4 +1,4 @@
-module github.com/brianm/kong-cue
+module github.com/brianm/kongcue
 
 go 1.25.5
 
