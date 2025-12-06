@@ -46,17 +46,19 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	if err != nil {
 		return fmt.Errorf("failed to generate config schema: %w", err)
 	}
-	if err := ValidateConfig(schema, val); err != nil {
-		return err
-	}
 
-	ctx.Bind(val)
-	ctx.AddResolver(NewResolver(val))
+	merged := val.Unify(schema)
+
+	ctx.Bind(merged)
+	ctx.AddResolver(NewResolver(merged))
 	return nil
 }
 
 func (r *cueResolver) Validate(app *kong.Application) error {
-	return nil
+	if r.value.Err() != nil {
+		return r.value.Err()
+	}
+	return r.value.Validate()
 }
 
 func (r *cueResolver) Resolve(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {

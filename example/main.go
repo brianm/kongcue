@@ -18,6 +18,9 @@ func (c *cli) Run() error {
 }
 
 func main() {
+
+	//logger := slog.Default()
+
 	var c cli
 	ktx := kong.Parse(&c)
 	err := ktx.Run()
