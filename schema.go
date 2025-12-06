@@ -12,30 +12,49 @@ import (
 	"github.com/alecthomas/kong"
 )
 
-// SchemaOptions configures schema generation behavior.
-type SchemaOptions struct {
-	// AdditionalFields allows injecting extra allowed fields into the schema.
-	// Key is the CUE path (e.g., "agent" or "" for root), value is CUE schema fragment.
-	AdditionalFields map[string]string
+// schemaOptions is the internal options struct used during schema generation.
+type schemaOptions struct {
+	allowUnknownFields bool
+}
 
-	// AllowUnknownFields disables strict validation (allows any field).
-	AllowUnknownFields bool
+// pendingOpts accumulates schema options set during kong.New().
+// Reset when getSchemaOptions() is called during BeforeResolve.
+var pendingOpts = &schemaOptions{}
+
+// getSchemaOptions returns the current options and resets for next parse.
+func getSchemaOptions() *schemaOptions {
+	opts := pendingOpts
+	pendingOpts = &schemaOptions{} // Reset for next kong.New()
+	return opts
+}
+
+// AllowUnknownFields returns a Kong option that disables strict schema validation,
+// allowing config files to contain fields that don't correspond to CLI flags.
+//
+// Usage:
+//
+//	kong.Parse(&cli, kongcue.AllowUnknownFields())
+func AllowUnknownFields() kong.Option {
+	return kong.OptionFunc(func(k *kong.Kong) error {
+		pendingOpts.allowUnknownFields = true
+		return nil
+	})
 }
 
 // GenerateSchema creates a CUE schema from a Kong application model.
 // The schema uses closed structs to reject unknown config keys unless
-// AllowUnknownFields is set in options.
-func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *SchemaOptions) (cue.Value, error) {
+// allowUnknownFields is set in options.
+func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *schemaOptions) (cue.Value, error) {
 	if opts == nil {
-		opts = &SchemaOptions{}
+		opts = &schemaOptions{}
 	}
 
 	// Build AST from Kong model
 	rootStruct := buildNodeSchema(app.Node, opts)
 
-	// Wrap in close() unless AllowUnknownFields is set
+	// Wrap in close() unless allowUnknownFields is set
 	var expr ast.Expr = rootStruct
-	if !opts.AllowUnknownFields {
+	if !opts.allowUnknownFields {
 		expr = wrapInClose(rootStruct)
 	}
 
@@ -49,19 +68,6 @@ func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *SchemaOptions
 	schemaVal := ctx.CompileBytes(src)
 	if err := schemaVal.Err(); err != nil {
 		return cue.Value{}, fmt.Errorf("failed to compile schema: %w", err)
-	}
-
-	// Apply additional fields if provided
-	for path, fragment := range opts.AdditionalFields {
-		additional := ctx.CompileString(fragment)
-		if err := additional.Err(); err != nil {
-			return cue.Value{}, fmt.Errorf("invalid additional fields at %q: %w", path, err)
-		}
-		if path == "" {
-			schemaVal = schemaVal.Unify(additional)
-		} else {
-			schemaVal = schemaVal.FillPath(cue.ParsePath(path), additional)
-		}
 	}
 
 	return schemaVal, nil
@@ -88,7 +94,7 @@ func ValidateConfig(schema cue.Value, config cue.Value) error {
 }
 
 // buildNodeSchema recursively builds a CUE struct AST from a Kong node.
-func buildNodeSchema(node *kong.Node, opts *SchemaOptions) *ast.StructLit {
+func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
 	var fields []any
 
 	// Add flags from this node
@@ -118,7 +124,7 @@ func buildNodeSchema(node *kong.Node, opts *SchemaOptions) *ast.StructLit {
 
 		childSchema := buildNodeSchema(child, opts)
 		var childExpr ast.Expr = childSchema
-		if !opts.AllowUnknownFields {
+		if !opts.allowUnknownFields {
 			childExpr = wrapInClose(childSchema)
 		}
 

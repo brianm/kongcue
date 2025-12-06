@@ -42,7 +42,7 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	}
 
 	// Generate schema from Kong model and validate config
-	schema, err := GenerateSchema(val.Context(), k.Model, nil)
+	schema, err := GenerateSchema(val.Context(), k.Model, getSchemaOptions())
 	if err != nil {
 		return fmt.Errorf("failed to generate config schema: %w", err)
 	}

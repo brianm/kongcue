@@ -199,79 +199,36 @@ agent:
 	}
 }
 
-func TestValidateConfig_AllowUnknownFields(t *testing.T) {
+func TestAllowUnknownFields_Option(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(configFile, []byte(`
-verbose: 2
+name: "Test"
 extra_field: "should be allowed"
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	var cli schemaCLI
-	parser, err := kong.New(&cli)
+	var cli struct {
+		Name   string         `name:"name" default:"default"`
+		Config kongcue.Config `name:"config"`
+	}
+
+	// With AllowUnknownFields(), unknown fields should be accepted
+	parser, err := kong.New(&cli, kongcue.AllowUnknownFields())
 	if err != nil {
 		t.Fatalf("failed to create parser: %v", err)
 	}
 
-	config, err := kongcue.LoadAndUnifyPaths([]string{configFile})
+	_, err = parser.Parse([]string{"--config", configFile})
 	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
+		t.Errorf("unknown fields should be allowed with AllowUnknownFields(): %v", err)
 	}
-
-	// Generate schema with AllowUnknownFields
-	opts := &kongcue.SchemaOptions{
-		AllowUnknownFields: true,
-	}
-	schema, err := kongcue.GenerateSchema(config.Context(), parser.Model, opts)
-	if err != nil {
-		t.Fatalf("failed to generate schema: %v", err)
-	}
-
-	// Should validate successfully with unknown fields allowed
-	if err := kongcue.ValidateConfig(schema, config); err != nil {
-		t.Errorf("unknown fields should be allowed: %v", err)
+	if cli.Name != "Test" {
+		t.Errorf("expected name 'Test', got %q", cli.Name)
 	}
 }
 
-func TestValidateConfig_AdditionalFields(t *testing.T) {
-	dir := t.TempDir()
-	configFile := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(configFile, []byte(`
-verbose: 2
-custom_field: "allowed via augmentation"
-`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	var cli schemaCLI
-	parser, err := kong.New(&cli)
-	if err != nil {
-		t.Fatalf("failed to create parser: %v", err)
-	}
-
-	config, err := kongcue.LoadAndUnifyPaths([]string{configFile})
-	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
-	}
-
-	// Generate schema with additional field allowed
-	opts := &kongcue.SchemaOptions{
-		AdditionalFields: map[string]string{
-			"": "{ custom_field?: string }",
-		},
-	}
-	schema, err := kongcue.GenerateSchema(config.Context(), parser.Model, opts)
-	if err != nil {
-		t.Fatalf("failed to generate schema: %v", err)
-	}
-
-	// Should validate successfully with additional field
-	if err := kongcue.ValidateConfig(schema, config); err != nil {
-		t.Errorf("additional field should be allowed: %v", err)
-	}
-}
 
 func TestBeforeResolve_RejectsUnknownField(t *testing.T) {
 	dir := t.TempDir()
