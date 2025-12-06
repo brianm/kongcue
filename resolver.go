@@ -40,6 +40,16 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	if err != nil {
 		return fmt.Errorf("unable to load config: %w", err)
 	}
+
+	// Generate schema from Kong model and validate config
+	schema, err := GenerateSchema(val.Context(), k.Model, nil)
+	if err != nil {
+		return fmt.Errorf("failed to generate config schema: %w", err)
+	}
+	if err := ValidateConfig(schema, val); err != nil {
+		return err
+	}
+
 	ctx.Bind(val)
 	ctx.AddResolver(NewResolver(val))
 	return nil

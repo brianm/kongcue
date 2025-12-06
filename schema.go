@@ -1,0 +1,231 @@
+package kongcue
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/ast"
+	"cuelang.org/go/cue/format"
+	"cuelang.org/go/cue/token"
+	"github.com/alecthomas/kong"
+)
+
+// SchemaOptions configures schema generation behavior.
+type SchemaOptions struct {
+	// AdditionalFields allows injecting extra allowed fields into the schema.
+	// Key is the CUE path (e.g., "agent" or "" for root), value is CUE schema fragment.
+	AdditionalFields map[string]string
+
+	// AllowUnknownFields disables strict validation (allows any field).
+	AllowUnknownFields bool
+}
+
+// GenerateSchema creates a CUE schema from a Kong application model.
+// The schema uses closed structs to reject unknown config keys unless
+// AllowUnknownFields is set in options.
+func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *SchemaOptions) (cue.Value, error) {
+	if opts == nil {
+		opts = &SchemaOptions{}
+	}
+
+	// Build AST from Kong model
+	rootStruct := buildNodeSchema(app.Node, opts)
+
+	// Wrap in close() unless AllowUnknownFields is set
+	var expr ast.Expr = rootStruct
+	if !opts.AllowUnknownFields {
+		expr = wrapInClose(rootStruct)
+	}
+
+	// Format AST to source
+	src, err := format.Node(expr)
+	if err != nil {
+		return cue.Value{}, fmt.Errorf("failed to format schema: %w", err)
+	}
+
+	// Compile to CUE value
+	schemaVal := ctx.CompileBytes(src)
+	if err := schemaVal.Err(); err != nil {
+		return cue.Value{}, fmt.Errorf("failed to compile schema: %w", err)
+	}
+
+	// Apply additional fields if provided
+	for path, fragment := range opts.AdditionalFields {
+		additional := ctx.CompileString(fragment)
+		if err := additional.Err(); err != nil {
+			return cue.Value{}, fmt.Errorf("invalid additional fields at %q: %w", path, err)
+		}
+		if path == "" {
+			schemaVal = schemaVal.Unify(additional)
+		} else {
+			schemaVal = schemaVal.FillPath(cue.ParsePath(path), additional)
+		}
+	}
+
+	return schemaVal, nil
+}
+
+// ValidateConfig validates that config conforms to the schema.
+// Returns an error if config contains unknown fields or type mismatches.
+func ValidateConfig(schema cue.Value, config cue.Value) error {
+	// Unify schema with config - this will produce errors for:
+	// 1. Unknown fields (due to close())
+	// 2. Type mismatches
+	unified := schema.Unify(config)
+
+	if err := unified.Err(); err != nil {
+		return formatValidationError(err)
+	}
+
+	// Validate to catch additional constraint violations
+	if err := unified.Validate(); err != nil {
+		return formatValidationError(err)
+	}
+
+	return nil
+}
+
+// buildNodeSchema recursively builds a CUE struct AST from a Kong node.
+func buildNodeSchema(node *kong.Node, opts *SchemaOptions) *ast.StructLit {
+	var fields []any
+
+	// Add flags from this node
+	for _, flag := range node.Flags {
+		// Skip hidden flags, help, and config flags
+		if flag.Hidden || flag.Name == "config" || flag.Name == "help" || flag.Name == "help-all" {
+			continue
+		}
+
+		fieldName := kebabToSnake(flag.Name)
+		fieldType := valueToType(flag.Value)
+
+		// Create optional field: fieldName?: type
+		field := &ast.Field{
+			Label:      ast.NewIdent(fieldName),
+			Constraint: token.OPTION,
+			Value:      fieldType,
+		}
+		fields = append(fields, field)
+	}
+
+	// Add child commands as nested schemas
+	for _, child := range node.Children {
+		if child.Type != kong.CommandNode {
+			continue
+		}
+
+		childSchema := buildNodeSchema(child, opts)
+		var childExpr ast.Expr = childSchema
+		if !opts.AllowUnknownFields {
+			childExpr = wrapInClose(childSchema)
+		}
+
+		field := &ast.Field{
+			Label:      ast.NewIdent(child.Name),
+			Constraint: token.OPTION,
+			Value:      childExpr,
+		}
+		fields = append(fields, field)
+	}
+
+	return &ast.StructLit{Elts: toDecls(fields)}
+}
+
+// valueToType converts a Kong value to a CUE type expression.
+// Types are made coercible by allowing string alternatives.
+func valueToType(v *kong.Value) ast.Expr {
+	// Handle slices
+	if v.IsSlice() {
+		elemType := sliceElemType(v.Target)
+		return &ast.ListLit{
+			Elts: []ast.Expr{&ast.Ellipsis{Type: elemType}},
+		}
+	}
+
+	// Handle maps
+	if v.IsMap() {
+		// Open struct pattern: {[string]: _}
+		return ast.NewStruct()
+	}
+
+	// Handle counters (like -v -v -v for verbosity)
+	if v.IsCounter() {
+		return orExpr(ast.NewIdent("int"), ast.NewIdent("string"))
+	}
+
+	// Handle booleans
+	if v.IsBool() {
+		return orExpr(ast.NewIdent("bool"), ast.NewIdent("string"))
+	}
+
+	// Use reflection for other types
+	return kindToType(v.Target.Kind())
+}
+
+// kindToType converts a reflect.Kind to a CUE type expression with string coercion.
+func kindToType(k reflect.Kind) ast.Expr {
+	switch k {
+	case reflect.String:
+		return ast.NewIdent("string")
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return orExpr(ast.NewIdent("int"), ast.NewIdent("string"))
+	case reflect.Float32, reflect.Float64:
+		return orExpr(ast.NewIdent("number"), ast.NewIdent("string"))
+	case reflect.Bool:
+		return orExpr(ast.NewIdent("bool"), ast.NewIdent("string"))
+	default:
+		return ast.NewIdent("_")
+	}
+}
+
+// sliceElemType returns the CUE type for slice elements.
+func sliceElemType(v reflect.Value) ast.Expr {
+	if v.Kind() != reflect.Slice {
+		return ast.NewIdent("_")
+	}
+	elemKind := v.Type().Elem().Kind()
+	return kindToType(elemKind)
+}
+
+// orExpr creates a CUE binary OR expression: a | b
+func orExpr(a, b ast.Expr) ast.Expr {
+	return &ast.BinaryExpr{X: a, Op: token.OR, Y: b}
+}
+
+// wrapInClose wraps a struct in close() to reject unknown fields.
+func wrapInClose(s *ast.StructLit) ast.Expr {
+	return &ast.CallExpr{
+		Fun:  ast.NewIdent("close"),
+		Args: []ast.Expr{s},
+	}
+}
+
+// kebabToSnake converts kebab-case to snake_case.
+func kebabToSnake(s string) string {
+	return strings.ReplaceAll(s, "-", "_")
+}
+
+// toDecls converts a slice of fields to ast.Decl slice.
+func toDecls(fields []any) []ast.Decl {
+	decls := make([]ast.Decl, len(fields))
+	for i, f := range fields {
+		decls[i] = f.(ast.Decl)
+	}
+	return decls
+}
+
+// formatValidationError formats CUE validation errors for user display.
+func formatValidationError(err error) error {
+	errStr := err.Error()
+
+	// Check for "field not allowed" pattern (unknown fields)
+	if strings.Contains(errStr, "field not allowed") {
+		return fmt.Errorf("unknown configuration key: %w\n"+
+			"Hint: Check that all config keys correspond to valid CLI flags", err)
+	}
+
+	return fmt.Errorf("configuration validation failed: %w", err)
+}
