@@ -5,9 +5,11 @@ go 1.25.5
 require (
 	cuelang.org/go v0.15.1
 	github.com/alecthomas/kong v1.13.0
+	github.com/bmatcuk/doublestar v1.3.4
 )
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect
 	github.com/cockroachdb/apd/v3 v3.2.1 // indirect
 	github.com/emicklei/proto v1.14.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
