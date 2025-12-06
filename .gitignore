@@ -1,0 +1,8 @@
+*~
+/.envrc
+/.vscode
+/tmp
+/*.exe
+/.idea/
+/target/
+/dist/
