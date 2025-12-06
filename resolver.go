@@ -1,6 +1,7 @@
 package kongcue
 
 import (
+	"fmt"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -25,6 +26,22 @@ type cueResolver struct {
 //	ctx := kong.Parse(&cli, kong.Resolvers(NewResolver(config)))
 func NewResolver(value cue.Value) kong.Resolver {
 	return &cueResolver{value: value}
+}
+
+type Config []string
+
+func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path) error {
+	paths := []string(ctx.FlagValue(trace.Flag).(Config))
+	expanded := make([]string, len(paths))
+	for i, path := range paths {
+		expanded[i] = kong.ExpandPath(path)
+	}
+	val, err := LoadAndUnifyPaths(expanded)
+	if err != nil {
+		return fmt.Errorf("unable to load config: %w", err)
+	}
+	ctx.AddResolver(NewResolver(val))
+	return nil
 }
 
 func (r *cueResolver) Validate(app *kong.Application) error {

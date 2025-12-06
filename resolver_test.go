@@ -23,6 +23,33 @@ type testAgentCLI struct {
 	Auth  string   `name:"auth"`
 }
 
+func TestBasics(t *testing.T) {
+	dir := t.TempDir()
+	configFile := filepath.Join(dir, "config.yaml")
+	os.WriteFile(configFile, []byte("name: Brian"), 0666)
+
+	var cli struct {
+		Name   string         `name:"name" help:"a name" default:"Tom"`
+		Config kongcue.Config `name:"config"`
+	}
+
+	parser, err := kong.New(&cli)
+	if err != nil {
+		t.Logf("unexpected error: %s", err)
+		t.FailNow()
+	}
+	_, err = parser.Parse([]string{"--config", configFile})
+	if err != nil {
+		t.Logf("unexpected error parsing: %s", err)
+		t.FailNow()
+	}
+	if cli.Name != "Brian" {
+		t.Logf("expected name to be Brian, was %s", cli.Name)
+		t.FailNow()
+	}
+
+}
+
 func TestNewResolver_GlobalFlag(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "config.yaml")
