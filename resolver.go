@@ -40,13 +40,25 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	if err != nil {
 		return fmt.Errorf("unable to load config: %w", err)
 	}
-	ctx.Bind(val)
-	ctx.AddResolver(NewResolver(val))
+
+	// Generate schema from Kong model and validate config
+	schema, err := GenerateSchema(val.Context(), k.Model, getSchemaOptions())
+	if err != nil {
+		return fmt.Errorf("failed to generate config schema: %w", err)
+	}
+
+	merged := val.Unify(schema)
+
+	ctx.Bind(merged)
+	ctx.AddResolver(NewResolver(merged))
 	return nil
 }
 
 func (r *cueResolver) Validate(app *kong.Application) error {
-	return nil
+	if r.value.Err() != nil {
+		return r.value.Err()
+	}
+	return r.value.Validate()
 }
 
 func (r *cueResolver) Resolve(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {
