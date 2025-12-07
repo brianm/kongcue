@@ -52,8 +52,13 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	var allErrs errors.Error
 
 	// First pass: check for unknown fields using permissive types
-	if !opts.allowUnknownFields {
-		permissiveOpts := &schemaOptions{permissiveTypes: true}
+	// Skip if allowAll is set (unknown fields allowed everywhere)
+	if !opts.allowAll {
+		permissiveOpts := &schemaOptions{
+			permissiveTypes:   true,
+			allowUnknownPaths: opts.allowUnknownPaths, // Inherit path-specific allows
+			allowAll:          opts.allowAll,
+		}
 		permissiveSchema, err := GenerateSchema(val.Context(), k.Model, permissiveOpts)
 		if err != nil {
 			return fmt.Errorf("failed to generate config schema: %w", err)

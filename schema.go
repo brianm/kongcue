@@ -14,8 +14,9 @@ import (
 
 // schemaOptions is the internal options struct used during schema generation.
 type schemaOptions struct {
-	allowUnknownFields bool
-	permissiveTypes    bool // Use _ for all types (for unknown field checking only)
+	allowUnknownPaths []string // Paths where unknown fields are allowed (empty = nowhere, nil with allowAll = everywhere)
+	allowAll          bool     // Allow unknown fields everywhere (backwards compat for no-arg call)
+	permissiveTypes   bool     // Use _ for all types (for unknown field checking only)
 }
 
 // pendingOpts accumulates schema options set during kong.New().
@@ -29,17 +30,46 @@ func getSchemaOptions() *schemaOptions {
 	return opts
 }
 
-// AllowUnknownFields returns a Kong option that disables strict schema validation,
-// allowing config files to contain fields that don't correspond to CLI flags.
+// AllowUnknownFields returns a Kong option that allows unknown config keys.
+// With no arguments, unknown fields are allowed everywhere (backwards compatible).
+// With path arguments, unknown fields are only allowed at those paths and their descendants.
+//
+// Paths use dot notation matching the config structure (e.g., "server", "server.tls").
 //
 // Usage:
 //
-//	kong.Parse(&cli, kongcue.AllowUnknownFields())
-func AllowUnknownFields() kong.Option {
+//	kong.Parse(&cli, kongcue.AllowUnknownFields())                    // allow everywhere
+//	kong.Parse(&cli, kongcue.AllowUnknownFields("extra", "legacy"))   // allow at specific paths
+func AllowUnknownFields(paths ...string) kong.Option {
 	return kong.OptionFunc(func(k *kong.Kong) error {
-		pendingOpts.allowUnknownFields = true
+		if len(paths) == 0 {
+			pendingOpts.allowAll = true
+		} else {
+			pendingOpts.allowUnknownPaths = append(pendingOpts.allowUnknownPaths, paths...)
+		}
 		return nil
 	})
+}
+
+// shouldAllowUnknown checks if unknown fields should be allowed at the given path.
+// Returns true if:
+// - allowAll is set (no-arg AllowUnknownFields())
+// - path matches one of allowUnknownPaths exactly
+// - path is a descendant of one of allowUnknownPaths
+func (opts *schemaOptions) shouldAllowUnknown(path string) bool {
+	if opts.allowAll {
+		return true
+	}
+	for _, allowed := range opts.allowUnknownPaths {
+		if path == allowed {
+			return true
+		}
+		// Check if path is under allowed (allowed is a prefix)
+		if strings.HasPrefix(path, allowed+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // GenerateSchema creates a CUE schema from a Kong application model.
@@ -50,12 +80,12 @@ func GenerateSchema(ctx *cue.Context, app *kong.Application, opts *schemaOptions
 		opts = &schemaOptions{}
 	}
 
-	// Build AST from Kong model
-	rootStruct := buildNodeSchema(app.Node, opts)
+	// Build AST from Kong model (root path is empty)
+	rootStruct := buildNodeSchema(app.Node, "", opts)
 
-	// Wrap in close() unless allowUnknownFields is set
+	// Wrap in close() unless unknown fields are allowed at root
 	var expr ast.Expr = rootStruct
-	if !opts.allowUnknownFields {
+	if !opts.shouldAllowUnknown("") {
 		expr = wrapInClose(rootStruct)
 	}
 
@@ -95,8 +125,10 @@ func ValidateConfig(schema cue.Value, config cue.Value) error {
 }
 
 // buildNodeSchema recursively builds a CUE struct AST from a Kong node.
-func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
+// path is the dot-separated path to this node (empty string for root).
+func buildNodeSchema(node *kong.Node, path string, opts *schemaOptions) *ast.StructLit {
 	var fields []any
+	existingFields := make(map[string]bool)
 
 	// Add flags from this node
 	for _, flag := range node.Flags {
@@ -106,6 +138,7 @@ func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
 		}
 
 		fieldName := kebabToSnake(flag.Name)
+		existingFields[fieldName] = true
 		var fieldType ast.Expr
 		if opts.permissiveTypes {
 			fieldType = ast.NewIdent("_")
@@ -128,9 +161,17 @@ func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
 			continue
 		}
 
-		childSchema := buildNodeSchema(child, opts)
+		existingFields[child.Name] = true
+
+		// Build child path
+		childPath := child.Name
+		if path != "" {
+			childPath = path + "." + child.Name
+		}
+
+		childSchema := buildNodeSchema(child, childPath, opts)
 		var childExpr ast.Expr = childSchema
-		if !opts.allowUnknownFields {
+		if !opts.shouldAllowUnknown(childPath) {
 			childExpr = wrapInClose(childSchema)
 		}
 
@@ -142,7 +183,52 @@ func buildNodeSchema(node *kong.Node, opts *schemaOptions) *ast.StructLit {
 		fields = append(fields, field)
 	}
 
+	// Add allowed paths that don't exist as commands/flags
+	// e.g., AllowUnknownFields("messy") adds messy?: _ at root
+	for _, allowed := range opts.allowUnknownPaths {
+		fieldName := opts.getAllowedFieldAtPath(allowed, path)
+		if fieldName != "" && !existingFields[fieldName] {
+			existingFields[fieldName] = true
+			field := &ast.Field{
+				Label:      ast.NewIdent(fieldName),
+				Constraint: token.OPTION,
+				Value:      ast.NewIdent("_"), // Open - allows anything
+			}
+			fields = append(fields, field)
+		}
+	}
+
 	return &ast.StructLit{Elts: toDecls(fields)}
+}
+
+// getAllowedFieldAtPath returns the field name to add at the given path
+// for an allowed path. Returns empty string if the allowed path doesn't
+// apply at this level.
+// e.g., allowed="messy", path="" -> "messy"
+// e.g., allowed="foo.bar", path="" -> "foo"
+// e.g., allowed="foo.bar", path="foo" -> "bar"
+// e.g., allowed="messy", path="foo" -> ""
+func (opts *schemaOptions) getAllowedFieldAtPath(allowed, path string) string {
+	if path == "" {
+		// At root, extract first component
+		if idx := strings.Index(allowed, "."); idx != -1 {
+			return allowed[:idx]
+		}
+		return allowed
+	}
+
+	// Check if allowed starts with path
+	prefix := path + "."
+	if !strings.HasPrefix(allowed, prefix) {
+		return ""
+	}
+
+	// Extract next component after path
+	rest := allowed[len(prefix):]
+	if idx := strings.Index(rest, "."); idx != -1 {
+		return rest[:idx]
+	}
+	return rest
 }
 
 // valueToType converts a Kong value to a CUE type expression.

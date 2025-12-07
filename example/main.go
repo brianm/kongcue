@@ -20,6 +20,6 @@ func (c *cli) Run() error {
 
 func main() {
 	var c cli
-	ktx := kong.Parse(&c)
+	ktx := kong.Parse(&c, kongcue.AllowUnknownFields("messy"))
 	ktx.FatalIfErrorf(ktx.Run())
 }
