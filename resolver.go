@@ -31,7 +31,25 @@ func NewResolver(value cue.Value) kong.Resolver {
 
 type Config []string
 
+// isRunningConfigDoc checks if the selected command is a ConfigDoc command.
+// Used to skip config validation when generating schema documentation.
+func isRunningConfigDoc(ctx *kong.Context) bool {
+	if ctx.Selected() == nil {
+		return false
+	}
+	target := ctx.Selected().Target
+	if !target.IsValid() {
+		return false
+	}
+	return target.Type().String() == "kongcue.ConfigDoc"
+}
+
 func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path, schemaOpts *SchemaOptions) error {
+	// Skip validation if the target command is ConfigDoc - it will handle its own exit
+	if isRunningConfigDoc(ctx) {
+		return nil
+	}
+
 	paths := []string(ctx.FlagValue(trace.Flag).(Config))
 	expanded := make([]string, len(paths))
 	for i, path := range paths {
