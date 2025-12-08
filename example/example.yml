@@ -1,5 +1,7 @@
 name: "Brian"
-required: true
+stuff: true
+depart:
+  sadness: 3
 messy:
   woof: "meow"
   splat: 7

@@ -33,7 +33,7 @@ func TestBasics(t *testing.T) {
 		Config kongcue.Config `name:"config"`
 	}
 
-	parser, err := kong.New(&cli)
+	parser, err := kong.New(&cli, kongcue.Options())
 	if err != nil {
 		t.Logf("unexpected error: %s", err)
 		t.FailNow()
@@ -62,7 +62,7 @@ func TestBasics2(t *testing.T) {
 		Config kongcue.Config `name:"config"`
 	}
 
-	parser, err := kong.New(&cli)
+	parser, err := kong.New(&cli, kongcue.Options())
 	if err != nil {
 		t.Logf("unexpected error: %s", err)
 		t.FailNow()

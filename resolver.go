@@ -31,7 +31,7 @@ func NewResolver(value cue.Value) kong.Resolver {
 
 type Config []string
 
-func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path) error {
+func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path, schemaOpts *SchemaOptions) error {
 	paths := []string(ctx.FlagValue(trace.Flag).(Config))
 	expanded := make([]string, len(paths))
 	for i, path := range paths {
@@ -42,8 +42,19 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 		return fmt.Errorf("unable to load config: %w", err)
 	}
 
+	// Check if any config was actually loaded (has fields)
+	// If no config files were found, skip validation and let Kong handle CLI flags
+	iter, _ := val.Fields()
+	hasConfig := iter.Next()
+
+	if !hasConfig {
+		// No config loaded - just set up empty resolver, let Kong handle validation
+		ctx.AddResolver(&cueResolver{value: val})
+		return nil
+	}
+
 	// Generate schema and validate config early to report config errors clearly
-	opts := getSchemaOptions()
+	opts := schemaOpts.toInternal()
 	schema, err := GenerateSchema(val.Context(), k.Model, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate config schema: %w", err)
@@ -69,8 +80,9 @@ func (r Config) BeforeResolve(k *kong.Kong, ctx *kong.Context, trace *kong.Path)
 	}
 
 	// Second pass: check types with strict schema
+	// Use Concrete(true) to ensure required fields are present
 	merged := val.Unify(schema)
-	if err := merged.Validate(); err != nil {
+	if err := merged.Validate(cue.Concrete(true)); err != nil {
 		allErrs = errors.Append(allErrs, errors.Promote(err, ""))
 	}
 
@@ -88,18 +100,36 @@ func (r *cueResolver) Validate(app *kong.Application) error {
 	return nil
 }
 
-// filterErrorDetails formats CUE errors, removing references to generated files.
+// filterErrorDetails formats CUE errors, removing references to generated files
+// and adding helpful context for common error types.
 func filterErrorDetails(err error) string {
 	details := errors.Details(err, nil)
 	// Filter out lines referencing the generated schema
 	var filtered []string
+	hasIncomplete := false
+	hasNotAllowed := false
 	for line := range strings.SplitSeq(details, "\n") {
 		if strings.Contains(line, "generated-schema") {
 			continue
 		}
+		if strings.Contains(line, "incomplete value") {
+			hasIncomplete = true
+		}
+		if strings.Contains(line, "field not allowed") {
+			hasNotAllowed = true
+		}
 		filtered = append(filtered, line)
 	}
-	return strings.Join(filtered, "\n")
+	result := strings.Join(filtered, "\n")
+
+	// Add helpful hints based on error type
+	if hasIncomplete {
+		result += "\nHint: Required fields must be provided in the config file"
+	}
+	if hasNotAllowed {
+		result += "\nHint: Check that all config keys correspond to valid CLI flags"
+	}
+	return result
 }
 
 func (r *cueResolver) Resolve(ctx *kong.Context, parent *kong.Path, flag *kong.Flag) (any, error) {

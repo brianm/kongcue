@@ -34,7 +34,7 @@ func (c *cli) Run() error {
 
 func main() {
 	var c cli
-	ktx := kong.Parse(&c)
+	ktx := kong.Parse(&c, kongcue.Options())
 	err := ktx.Run()
 	ktx.FatalIfErrorf(err)
 }
@@ -49,6 +49,8 @@ name: "Brian"
 ./myapp              # Hello, Brian (from config)
 ./myapp --name Alice # Hello, Alice (CLI overrides config)
 ```
+
+**Note**: `kongcue.Options()` is required when using `kongcue.Config` or `kongcue.ConfigDoc`. If you use `kongcue.AllowUnknownFields()`, it includes `Options()` automatically.
 
 ## Features
 
@@ -92,6 +94,56 @@ To allow extra fields in config files (useful if configs are shared with other t
 
 ```go
 ctx := kong.Parse(&cli, kongcue.AllowUnknownFields())
+```
+
+## Schema Documentation Command
+
+Add a command that prints the CUE schema for your CLI's configuration:
+
+```go
+type cli struct {
+	Name      string            `help:"Name to greet"`
+	Server    serverCmd         `cmd:"" help:"Run the server"`
+	ConfigDoc kongcue.ConfigDoc `cmd:"config-doc" help:"Print config schema"`
+	Config    kongcue.Config    `default:"./config.yaml"`
+}
+```
+
+Running `./myapp config-doc` outputs a CUE schema:
+
+```cue
+// Configuration schema for validating config files.
+//
+// This schema is written in CUE, a configuration language that
+// validates and defines data. Learn more at https://cuelang.org
+//
+// To validate your config file against this schema:
+//   1. Save this schema to a file (e.g., schema.cue)
+//   2. Run: cue vet -d '#Root' schema.cue your-config.yaml
+//
+// Fields marked with ? are optional. Fields without ? are required.
+#Root: close({
+	// Name to greet
+	name?: string
+	// Run the server
+	server?: #Server
+})
+#Server: close({
+	// Server port
+	port?: int
+})
+```
+
+The schema includes:
+- **Help text as comments**: Kong `help:"..."` tags become CUE documentation
+- **Required field markers**: Fields with `required:""` don't have `?` and must be present
+- **Nested definitions**: Each subcommand gets its own `#Definition`
+
+Users can validate their config files using the [CUE CLI](https://cuelang.org/docs/introduction/installation/):
+
+```bash
+./myapp config-doc > schema.cue
+cue vet -d '#Root' schema.cue config.yaml
 ```
 
 ## Configuration Formats

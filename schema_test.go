@@ -240,8 +240,8 @@ agent:
 	}
 
 	var cli struct {
-		Name   string `name:"name" default:"default"`
-		Agent  struct {
+		Name  string `name:"name" default:"default"`
+		Agent struct {
 			CaURL string `name:"ca-url"`
 		} `cmd:"agent"`
 		Config kongcue.Config `name:"config"`
@@ -275,8 +275,8 @@ agent:
 	}
 
 	var cli struct {
-		Name   string `name:"name" default:"default"`
-		Agent  struct {
+		Name  string `name:"name" default:"default"`
+		Agent struct {
 			CaURL string `name:"ca-url"`
 		} `cmd:"agent"`
 		Config kongcue.Config `name:"config"`
@@ -309,8 +309,8 @@ server:
 	}
 
 	var cli struct {
-		Name   string `name:"name" default:"default"`
-		Agent  struct {
+		Name  string `name:"name" default:"default"`
+		Agent struct {
 			CaURL string `name:"ca-url"`
 		} `cmd:"agent"`
 		Server struct {
@@ -381,7 +381,7 @@ typo_field: "should fail"
 		Config kongcue.Config `name:"config"`
 	}
 
-	parser, err := kong.New(&cli)
+	parser, err := kong.New(&cli, kongcue.Options())
 	if err != nil {
 		t.Fatalf("failed to create parser: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestBeforeResolve_AcceptsValidConfig(t *testing.T) {
 		Config kongcue.Config `name:"config"`
 	}
 
-	parser, err := kong.New(&cli)
+	parser, err := kong.New(&cli, kongcue.Options())
 	if err != nil {
 		t.Fatalf("failed to create parser: %v", err)
 	}
